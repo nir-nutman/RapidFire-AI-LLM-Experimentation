@@ -122,6 +122,8 @@ See **[summary.md](summary.md)**
 **Competition**: RapidFire AI Winter Competition on LLM Experimentation  
 **Track**: RAG (Retrieval-First RAG Experimentation)  
 **Submission Date**: January 2026  
+**Award**: 🏅 Best Dataset Utilization  
+**Press**: [RapidFire AI Celebrates Winners Showcasing How to Build Better LLM Applications, Faster](https://www.einpresswire.com/article/889751837/rapidfire-ai-celebrates-winners-showcasing-how-to-build-better-llm-applications-faster) (EIN Presswire, Feb 5, 2026)  
 
 ---
 
@@ -129,7 +131,7 @@ See **[summary.md](summary.md)**
 
 **Author**: Nir Nutman  
 **Email**: nir.nutman@gmail.com
-**GitHub**: [@nirscripts](https://github.com/nirscripts)
+**GitHub**: [@nir-nutman](https://github.com/nir-nutman)
 
 ---
 
