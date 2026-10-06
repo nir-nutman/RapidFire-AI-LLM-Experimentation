@@ -77,7 +77,7 @@ A Retrieval-Augmented Generation (RAG) system that helps UCSB students quickly f
 ```
 ucsb-catalog-rag/
 ├── notebooks/
-│   └── UCSB_Catalog_RAG.ipynb      # Main experiment notebook
+│   └── UCSB_catalog_rag_notebook.ipynb  # Main experiment notebook
 ├── data/
 │   ├── corpus.jsonl                 # 1,304 catalog chunks
 │   ├── queries.jsonl                # 30 student questions
