@@ -175,8 +175,14 @@ corrections live in new files: `notebooks/UCSB_catalog_rag_notebook_v2.ipynb`,
    F1 0.434 / NDCG@5 0.125 / MRR 0.632 and 128-token at 0.341 / 0.427 / 0.372 / 0.105 / 0.524.
    `results/ucsb_catalog_results.csv` has 0.352 / 0.493 / 0.410 / 0.119 / 0.616 and
    0.337 / 0.440 / 0.380 / 0.118 / 0.591. The claimed improvements (+9.4% Precision, +21.8% Recall)
-   are larger than the CSV supports (+4.4%, +12.1%). It isn't known which run the README numbers
-   came from.
+   are larger than the CSV supports (+4.4%, +12.1%). **The README/`summary.md` numbers come from
+   an earlier run, not from the committed CSV:** an earlier local notebook
+   (`RapidFireAI_RAG_Pipeline_UCSB_Catalog.ipynb`, dated Jan 19) prints exactly those values
+   (e.g. Precision 0.373413, Recall 0.520000, F1 0.433722 for 256 tokens), while the committed CSV
+   matches the later run recorded in `logs/rapidfire.log` (Jan 21). The README and `summary.md`
+   were apparently never updated after the later run. Why the two runs differ (for example a
+   different query sample) hasn't been determined. Both runs show identical results for
+   `top_n=2` and `top_n=5`.
 8. **The reranker was configured but (per the package source) not applied at query time**, so
    `top_n` had no effect. Details in the section below.
 
