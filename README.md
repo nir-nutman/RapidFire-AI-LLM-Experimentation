@@ -192,16 +192,27 @@ duplicate-`corpus_id` denominator issue.)
 Confirmed by reading the actual installed package source (`rapidfireai==0.12.9` — the version
 live on PyPI on 2026-01-21, matching `logs/rapidfire.log`'s run timestamp; **not** the current
 GitHub `main` branch, whose `RFLangChainRagSpec` API has since changed parameter names and would
-not match this notebook's calls at all): `rag.get_context()` genuinely does apply the
-cross-encoder reranker and its configured `top_n` cutoff via
-`CrossEncoderReranker.compress_documents()` — top_n is not silently ignored. The most plausible
-explanation for the identical metrics is bug #3 above: whichever extra chunks top_n=5 keeps
-beyond top_n=2's cutoff most likely come from source documents already represented in the top 2,
-so both sets collapse to the same unique `corpus_id`s once `set(pred)` runs — identical input to
-every downstream metric. This is the best-supported explanation found, not a certainty — the
-actual per-query retrieved chunk IDs from the original run were never saved anywhere, so it can't
-be checked directly. The v2 notebook now saves `results/retrieved_ids_v2.json` specifically so
-this kind of question can be checked without re-running the GPU job in the future.
+not match this notebook's calls at all): `rag.get_context()` does apply the cross-encoder
+reranker and its configured `top_n` cutoff via `CrossEncoderReranker.compress_documents()`, so
+`top_n` is not ignored *within a context*. The problem is upstream of that:
+
+- `LangChainRagSpec.get_hash()` (`rapidfireai/evals/rag/rag_pipeline.py:461-496`) builds the
+  context key from chunk size/overlap, embedding, search settings and `has_reranker` (a boolean).
+  **`top_n` is not part of the hash.**
+- The controller (`rapidfireai/evals/scheduling/controller.py:128-169`) builds **one context per
+  distinct hash**, keeping the first spec it sees. The run log confirms it: 4 configs, "Found 2
+  unique RAG context(s)".
+- Each query actor rebuilds its `rag_spec`, including `reranker_kwargs`, from that shared context
+  (`rapidfireai/evals/actors/query_actor.py:201-211`) and hands it to `preprocess_fn`.
+
+So configs that differ only in `top_n` share one reranker, and the `top_n=5` runs most likely ran
+with `top_n=2` (assuming the `top_n=2` spec was encountered first; not confirmed). That fully
+explains the identical metrics in the original run and means **the top_n comparison in the
+original submission is not a valid comparison**; only the chunk-size comparison is. An earlier
+version of this section attributed the identical results to the duplicate-`corpus_id` set
+collapsing. That attribution was wrong: it isn't supported by the source above. (The set-collapsing
+issue is still real for Precision, but it isn't why these runs were identical.) The v2 notebook
+saves `results/retrieved_ids_v2.json` so retrieval can be inspected later.
 
 ### Embedding storage
 
