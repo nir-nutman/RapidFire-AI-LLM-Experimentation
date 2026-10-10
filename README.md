@@ -133,8 +133,8 @@ This section documents issues found in a later code audit (October 2026) and the
 made on the `v2-corrected-metrics` branch. **The original competition submission is unchanged** —
 it's preserved at git tag `pre-correction` and in `notebooks/UCSB_catalog_rag_notebook.ipynb`,
 `results/ucsb_catalog_results.csv`, and `summary.md`, none of which were edited in place. All
-corrections live in new files: `notebooks/UCSB_catalog_rag_notebook_v2.ipynb` and (once the v2
-notebook is run in Colab) `results/ucsb_catalog_results_v2.csv` and `results/retrieved_ids_v2.json`.
+corrections live in new files: `notebooks/UCSB_catalog_rag_notebook_v2.ipynb`,
+`results/ucsb_catalog_results_v2.csv` and `results/retrieved_ids_v2.json`.
 
 ### Original problems found
 
@@ -170,49 +170,76 @@ notebook is run in Colab) `results/ucsb_catalog_results_v2.csv` and `results/ret
    correctness, which nothing in this codebase evaluates. "Real-time confidence intervals showed
    256-token superiority after just 50% of data was processed" isn't substantiated by
    `logs/rapidfire.log` (checked for any confidence/interval/convergence logging — none found).
+7. **The headline numbers in the README/notebook don't match the committed results CSV.** The
+   original "Results Summary" table lists 256-token chunks at Precision 0.373 / Recall 0.520 /
+   F1 0.434 / NDCG@5 0.125 / MRR 0.632 and 128-token at 0.341 / 0.427 / 0.372 / 0.105 / 0.524.
+   `results/ucsb_catalog_results.csv` has 0.352 / 0.493 / 0.410 / 0.119 / 0.616 and
+   0.337 / 0.440 / 0.380 / 0.118 / 0.591. The claimed improvements (+9.4% Precision, +21.8% Recall)
+   are larger than the CSV supports (+4.4%, +12.1%). It isn't known which run the README numbers
+   came from.
+8. **The reranker was configured but (per the package source) not applied at query time**, so
+   `top_n` had no effect. Details in the section below.
 
 ### Metrics: original vs. corrected
 
-The v2 notebook (`notebooks/UCSB_catalog_rag_notebook_v2.ipynb`) has the fixes for items 1–3
-above applied but **has not been run yet** — corrected values below are pending a Colab run.
+The v2 notebook (`notebooks/UCSB_catalog_rag_notebook_v2.ipynb`) was run in Colab (T4,
+`rapidfireai==0.12.9`) on the same 15 sampled queries. Results are in
+`results/ucsb_catalog_results_v2.csv`; per-query retrieved IDs are in
+`results/retrieved_ids_v2.json`.
 
-| Config | Chunk / top_n | Precision (orig → corrected) | Recall (orig → corrected) | F1 (orig → corrected) | NDCG@5 (orig → corrected) | MRR (orig → corrected) |
+| Config | Chunk / top_n | Precision (orig → v2) | Recall (orig → v2) | F1 (orig → v2) | NDCG@5 (orig → v2) | MRR (orig → v2) |
 |---|---|---|---|---|---|---|
-| 1 | 256 / 2 | 0.3516 → *pending* | 0.4933 → *pending* | 0.4096 → *pending* | 0.1189 → *pending* | 0.6156 → *pending* |
-| 2 | 256 / 5 | 0.3516 → *pending* | 0.4933 → *pending* | 0.4096 → *pending* | 0.1189 → *pending* | 0.6156 → *pending* |
-| 3 | 128 / 2 | 0.3369 → *pending* | 0.4400 → *pending* | 0.3802 → *pending* | 0.1184 → *pending* | 0.5911 → *pending* |
-| 4 | 128 / 5 | 0.3369 → *pending* | 0.4400 → *pending* | 0.3802 → *pending* | 0.1184 → *pending* | 0.5911 → *pending* |
+| 1 | 256 / 2 | 0.3516 → 0.3516 | 0.4933 → 0.4933 | 0.4096 → 0.4096 | 0.1189 → 0.3451 | 0.6156 → 0.6583 |
+| 2 | 256 / 5 | 0.3516 → 0.3516 | 0.4933 → 0.4933 | 0.4096 → 0.4096 | 0.1189 → 0.3451 | 0.6156 → 0.6583 |
+| 3 | 128 / 2 | 0.3369 → 0.3369 | 0.4400 → 0.4400 | 0.3802 → 0.3802 | 0.1184 → 0.3498 | 0.5911 → 0.6000 |
+| 4 | 128 / 5 | 0.3369 → 0.3369 | 0.4400 → 0.4400 | 0.3802 → 0.3802 | 0.1184 → 0.3498 | 0.5911 → 0.6000 |
 
-(Original values from `results/ucsb_catalog_results.csv`, unedited. Recall is the one metric the
-audit found unaffected by either bug — its inputs don't depend on retrieval order or on the
-duplicate-`corpus_id` denominator issue.)
+Original values are from `results/ucsb_catalog_results.csv`, unedited. How to read this:
+
+- **Precision, Recall and F1 are unchanged**, as expected: they were already computed on
+  de-duplicated sets, and the fixes only changed order and the NDCG scale. (Precision/F1 are now
+  *documented* as being over unique `corpus_id`s; the underlying denominator behavior is the same.)
+- **NDCG@5 and MRR changed**, because they now see real rank order and a 0–1 NDCG scale.
+- **With corrected metrics, 256-token chunks no longer win on every metric.** 256 is higher on
+  Precision (+4.4% relative), Recall (+12.1%), F1 (+7.7%) and MRR (+9.7%), but NDCG@5 is slightly
+  *lower* for 256 (0.345 vs 0.350, −1.3%). This is 15 queries with no confidence intervals, so
+  treat the small differences as unresolved rather than as findings.
+- **Rows 1 vs 2 and 3 vs 4 are identical on every query** (the retrieved-ID lists are equal), so
+  `top_n` had no effect. See the next section for why. Only two distinct configurations were
+  effectively evaluated: chunk size 256 and chunk size 128.
 
 ### Why top_n=2 and top_n=5 produced identical metrics in the original run
 
-Confirmed by reading the actual installed package source (`rapidfireai==0.12.9` — the version
-live on PyPI on 2026-01-21, matching `logs/rapidfire.log`'s run timestamp; **not** the current
-GitHub `main` branch, whose `RFLangChainRagSpec` API has since changed parameter names and would
-not match this notebook's calls at all): `rag.get_context()` does apply the cross-encoder
-reranker and its configured `top_n` cutoff via `CrossEncoderReranker.compress_documents()`, so
-`top_n` is not ignored *within a context*. The problem is upstream of that:
+**Finding: the cross-encoder reranker most likely never ran during evaluation, in the original
+run or in v2.** This comes from reading the `rapidfireai==0.12.9` source (the version on PyPI on
+2026-01-21, matching `logs/rapidfire.log`; not the current GitHub `main`, whose API differs) and
+is consistent with the v2 data. It has not been confirmed by inspecting a live session.
 
-- `LangChainRagSpec.get_hash()` (`rapidfireai/evals/rag/rag_pipeline.py:461-496`) builds the
-  context key from chunk size/overlap, embedding, search settings and `has_reranker` (a boolean).
-  **`top_n` is not part of the hash.**
-- The controller (`rapidfireai/evals/scheduling/controller.py:128-169`) builds **one context per
-  distinct hash**, keeping the first spec it sees. The run log confirms it: 4 configs, "Found 2
-  unique RAG context(s)".
-- Each query actor rebuilds its `rag_spec`, including `reranker_kwargs`, from that shared context
-  (`rapidfireai/evals/actors/query_actor.py:201-211`) and hands it to `preprocess_fn`.
+- `LangChainRagSpec.__init__` sets `self.reranker = None` (`rapidfireai/evals/rag/rag_pipeline.py:170`).
+  The reranker object is only created inside `build_pipeline()` (lines 220-233).
+- Each query actor rebuilds its `rag_spec` from a prebuilt retriever and passes
+  `reranker_cls`/`reranker_kwargs` as plain attributes
+  (`rapidfireai/evals/actors/query_actor.py:201-214`). It never calls `build_pipeline()`, so the
+  actor's `self.reranker` stays `None`.
+- `_rerank_docs` returns the documents unchanged when `self.reranker` is falsy
+  (`rag_pipeline.py:516`). So `rag.get_context(...)` returned the raw k=8 similarity results.
+- **Consistent with the data:** `results/retrieved_ids_v2.json` has 6-8 unique `corpus_id`s per
+  query, even for the `top_n=2` configs. A working `top_n=2` reranker would leave at most 2 chunks.
+  8 is the raw k=8 search; 6-7 appear where several chunks share a `corpus_id`.
 
-So configs that differ only in `top_n` share one reranker, and the `top_n=5` runs most likely ran
-with `top_n=2` (assuming the `top_n=2` spec was encountered first; not confirmed). That fully
-explains the identical metrics in the original run and means **the top_n comparison in the
-original submission is not a valid comparison**; only the chunk-size comparison is. An earlier
-version of this section attributed the identical results to the duplicate-`corpus_id` set
-collapsing. That attribution was wrong: it isn't supported by the source above. (The set-collapsing
-issue is still real for Precision, but it isn't why these runs were identical.) The v2 notebook
-saves `results/retrieved_ids_v2.json` so retrieval can be inspected later.
+Consequences: **the reranker listed under "Fixed Parameters" was configured but not applied**, so
+the evaluated pipeline was single-stage embedding retrieval (k=8), not two-stage retrieve-and-
+rerank. `top_n` could not matter, which is why rows 1/2 and 3/4 are identical. Separately,
+`get_hash()` (`rag_pipeline.py:461-496`) omits `top_n`, so the 4 configs collapsed to 2 shared
+contexts ("Found 2 unique RAG context(s)" in the run log); that would also have hidden a top_n
+difference, but it is not the cause here.
+
+Two earlier versions of this section gave wrong explanations (first the duplicate-`corpus_id`
+set collapsing, then "top_n=5 reused a top_n=2 reranker"). Neither is supported by the source or
+the retrieved-ID data above.
+
+To confirm in a live session: after `Experiment.run_evals` has started, a query actor's
+`rag_spec.reranker` can be inspected; if it is `None`, no reranking happened.
 
 ### Embedding storage
 
