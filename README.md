@@ -1,75 +1,94 @@
 # UCSB Course Catalog RAG System
 
 **RapidFire AI Winter Competition Submission - RAG Track**
+🏅 *Best Dataset Utilization* (1 of 7 category winners)
 
 ---
 
 ## 📚 Overview
 
-A Retrieval-Augmented Generation (RAG) system that helps UCSB students quickly find information from the 2009-2010 course catalog. Instead of manually searching through 490 pages, students can ask natural language questions and receive accurate answers grounded in the catalog.
+A Retrieval-Augmented Generation (RAG) system that helps UCSB students find information in the 2009-2010 course catalog. Instead of searching 490 pages by hand, students ask natural-language questions and get answers grounded in the catalog.
 
 **Example Queries:**
 - "What are the general education requirements?"
 - "What courses are offered in the Computer Science department?"
 - "What is the add/drop policy?"
 
+This repository evaluates **retrieval quality** (does the right catalog section come back?) for different chunk sizes and with/without a cross-encoder reranker. It does not evaluate the correctness of the generated answers.
+
 ---
 
 ## 🎯 Research Question
 
-**Which chunking and reranking strategies provide optimal retrieval quality for academic course catalog queries?**
+**Which chunking and reranking strategies provide the best retrieval quality for academic course catalog queries?**
+
+**Short answer from the final run:** on this dataset, no detectable difference between 128- and 256-token chunks, and no evidence that adding a cross-encoder reranker improves retrieval over plain embedding search. Details and limits below.
 
 ---
 
 ## 🔬 Experiment Design
 
-### Configurations Tested (4 total)
+A 2×2 grid, run through RapidFire AI:
 
-| Config | Chunk Size | Rerank Top-N | Performance |
-|--------|-----------|--------------|-------------|
-| **1** ✅ | **256** | **2** | **Winner (tied)** |
-| **2** ✅ | **256** | **5** | **Winner (tied)** |
-| 3 | 128 | 2 | Baseline |
-| 4 | 128 | 5 | Baseline |
+| Factor | Values |
+|---|---|
+| Chunk size (tokens) | 128, 256 (overlap 32) |
+| Rerank `top_n` | 2, 5 (cross-encoder keeps this many of the 8 retrieved) |
 
-### Fixed Parameters
-- **Embedding Model**: `sentence-transformers/all-MiniLM-L6-v2`
-- **Retrieval**: k=8 (similarity search with FAISS)
+### Fixed parameters
+- **Embedding model**: `sentence-transformers/all-MiniLM-L6-v2`
+- **Retrieval**: k=8, similarity search, FAISS (`IndexFlatL2`, exact search)
 - **Reranker**: `cross-encoder/ms-marco-MiniLM-L6-v2`
-- **Generator**: `Qwen/Qwen2.5-0.5B-Instruct` (0.5B parameters)
+- **Generator**: `Qwen/Qwen2.5-0.5B-Instruct` (served with vLLM)
+- **Evaluation set**: 15 queries (a 50% sample of 30), 5 relevant sections per query
+
+### Three runs of this experiment
+| Version | What it is | Notebook | Results |
+|---|---|---|---|
+| **Original** (competition) | As submitted | `notebooks/UCSB_catalog_rag_notebook.ipynb` | `results/ucsb_catalog_results.csv` |
+| **v2** | Metric bugs fixed; reranker still not applied (see below), so effectively *no reranker* | `notebooks/UCSB_catalog_rag_notebook_v2.ipynb` | `results/ucsb_catalog_results_v2.csv` |
+| **v3** | Metric bugs fixed **and** the reranker explicitly applied | `notebooks/UCSB_catalog_rag_notebook_v3_reranked.ipynb` | `results/ucsb_catalog_results_v3.csv` |
 
 ---
 
-## 📊 Results Summary
+## 📊 Results (v2 and v3, corrected metrics)
 
-### Winner: Config 1 & 2 (chunk_size=256)
+Precision, Recall and F1 are computed over **unique source sections (`corpus_id`)** after de-duplication. NDCG@5 and MRR use the true retrieval order. 15 queries.
 
-| Metric | Config 1/2 (256 tokens) | Config 3/4 (128 tokens) | Improvement |
-|--------|-------------------------|-------------------------|-------------|
-| **Precision** | 0.373 | 0.341 | **+9.4%** |
-| **Recall** | 0.520 | 0.427 | **+21.8%** |
-| **F1 Score** | 0.434 | 0.372 | **+16.7%** |
-| **NDCG@5** | 0.125 | 0.105 | **+19.0%** |
-| **MRR** | 0.632 | 0.524 | **+20.6%** |
+| Setup | Precision | Recall | F1 | NDCG@5 | MRR |
+|---|---|---|---|---|---|
+| No reranker, 256 tokens (v2) | 0.352 | 0.493 | 0.410 | 0.345 | 0.658 |
+| No reranker, 128 tokens (v2) | 0.337 | 0.440 | 0.380 | 0.350 | 0.600 |
+| Reranked, 256 tokens, top_n=2 (v3) | 0.400 | 0.160 | 0.229 | 0.196 | 0.467 |
+| Reranked, 256 tokens, top_n=5 (v3) | 0.370 | 0.347 | 0.357 | 0.337 | 0.528 |
+| Reranked, 128 tokens, top_n=2 (v3) | 0.200 | 0.080 | 0.114 | 0.119 | 0.333 |
+| Reranked, 128 tokens, top_n=5 (v3) | 0.390 | 0.347 | 0.366 | 0.333 | 0.513 |
 
-### Key Findings
+### What the data supports
 
-1. ✅ **Larger chunks (256 tokens) significantly outperform smaller chunks (128 tokens)** across all metrics
-2. ✅ **Chunk size is the critical parameter** for course catalog retrieval quality
-3. ✅ **Reranking top_n had zero impact** on retrieval metrics
-4. ✅ **Context preservation matters**: Complete course descriptions improve retrieval by 16-21%
+Paired bootstrap 95% confidence intervals over the 15 queries are in [`results/bootstrap_ci.md`](results/bootstrap_ci.md) (`scripts/bootstrap_ci.js`, which first checks that it reproduces the numbers above).
+
+- **Chunk size: no detectable effect.** Without a reranker, and with `top_n=5`, every 256-vs-128 interval includes 0. (At `top_n=2`, 256 looks better, but that is an artifact: with 128-token chunks the top two chunks often come from the same source section, leaving one unique ID.)
+- **Reranker: no evidence it helps.** Against no reranker, `top_n=5` loses Recall (−0.15 at 256, −0.09 at 128) and shows no clear change in Precision, F1, NDCG@5 or MRR. `top_n=2` is clearly worse on Recall, F1 and NDCG@5. Hypothesis, not tested: the relevance labels were generated by embedding similarity, which would favor embedding order over a cross-encoder.
+- **`top_n=5` beats `top_n=2`** on Recall, F1 and NDCG@5, but partly mechanically: each query has 5 relevant sections, so keeping 2 caps Recall at 0.4.
+
+### Limits of this evidence
+- **15 queries**, so intervals are wide. Nine comparisons × five metrics were examined, so an isolated borderline result may be chance.
+- The intervals reflect only *which* 15 queries were sampled. They don't cover label quality or the other 15 queries.
+- **Relevance labels are unverified**: described as "generated via embedding similarity", but the generation script is not in this repository's history (checked across every commit).
+- Only retrieval is evaluated, not answer quality.
 
 ---
 
 ## 📁 Dataset
 
 ### UCSB 2009-2010 Course Catalog
-- **Source**: 490-page PDF with course descriptions, requirements, and policies
-- **Corpus**: 1,304 document chunks
-- **Queries**: 30 representative student questions
-- **Qrels**: 150 relevance judgments (generated via embedding similarity)
+- **Source**: 490-page PDF with course descriptions, requirements and policies
+- **Corpus**: 1,304 **source sections** (`data/corpus.jsonl`, about 3,500 characters each on average). The pipeline's text splitter cuts these into 128- or 256-token chunks at index time, so the number of retrieval chunks is larger and differs by chunk size.
+- **Queries**: 30 student questions (15 sampled per run)
+- **Relevance judgments**: 150 (5 per query), auto-generated and unverified (see above)
 
-**Dataset is included** in this repository (`data/` folder)
+The dataset is included in `data/`.
 
 ---
 
@@ -77,43 +96,42 @@ A Retrieval-Augmented Generation (RAG) system that helps UCSB students quickly f
 ```
 ucsb-catalog-rag/
 ├── notebooks/
-│   └── UCSB_catalog_rag_notebook.ipynb  # Main experiment notebook
-├── data/
-│   ├── corpus.jsonl                 # 1,304 catalog chunks
-│   ├── queries.jsonl                # 30 student questions
-│   └── qrels.tsv                    # 150 relevance judgments
-├── logs/
-│   └── rapidfire.log                # Experiment log
+│   ├── UCSB_catalog_rag_notebook.ipynb           # original (as submitted)
+│   ├── UCSB_catalog_rag_notebook_v2.ipynb        # metric fixes
+│   └── UCSB_catalog_rag_notebook_v3_reranked.ipynb  # metric fixes + reranker applied
+├── data/                       # corpus.jsonl, queries.jsonl, qrels.tsv
+├── logs/rapidfire.log          # log from the original run
 ├── results/
-│   ├── ucsb_catalog_results.csv     # Final metrics
-│   └── screenshots/                 # Experiment screenshots
-├── README.md                         # This file
-└── summary.md                        # Detailed experiment write-up
+│   ├── ucsb_catalog_results.csv        # original
+│   ├── ucsb_catalog_results_v2.csv     # v2
+│   ├── ucsb_catalog_results_v3.csv     # v3
+│   ├── retrieved_ids_v2.json / retrieved_ids_v3.json   # per-query retrieved IDs (v3 also pre-rerank)
+│   ├── bootstrap_ci.md                 # confidence intervals
+│   └── screenshots/
+├── scripts/bootstrap_ci.js     # recomputes metrics from saved IDs + bootstrap CIs
+├── summary.md                  # write-up of the ORIGINAL submission (superseded; see below)
+└── README.md
 ```
 
 ---
 
 ## 🛠️ How RapidFire AI Helped
 
-RapidFire AI's experimentation framework enabled:
-
-- ✅ **Parallel execution**: All 4 configs ran simultaneously (saved ~15-20 minutes)
-- ✅ **Real-time metrics**: Live confidence intervals showed convergence
-- ✅ **Interactive control**: Could stop/clone/resume configs dynamically
-- ✅ **Automatic logging**: Complete experiment tracking for reproducibility
-- ✅ **Grid search**: Automatically generated 4 configs from 2×2 parameter space
+- **Grid search**: generated the 4 configurations from the 2×2 parameter space
+- **Shared index building**: configurations that share a chunk size reuse one built index
+- **Experiment tracking and logging** for reproducibility (`logs/rapidfire.log`)
 
 ---
 
-## 📖 Detailed Analysis
+## 🔁 Running the notebooks (Colab)
 
-For complete analysis including:
-- Hypothesis and methodology
-- Detailed metrics breakdown
-- Trade-offs and insights
-- Future work recommendations
+Use the v3 notebook on a **T4 GPU** runtime. Its first cells check the GPU and install pinned versions: `rapidfireai==0.12.9` (the version live when the experiment first ran), `rapidfireai init --evals` (installs vLLM and FAISS-GPU), `transformers<5`, matching `flashinfer-python`/`flashinfer-cubin` 0.6.13, and `trackio==0.9.1`. Newer dependency releases have broken this setup in several ways, which is why the versions are pinned.
 
-See **[summary.md](summary.md)**
+---
+
+## 📖 Original write-up
+
+[`summary.md`](summary.md) describes the **original submission**. It is kept unedited; its numbers (from an earlier run) and its conclusions are superseded by the results above.
 
 ---
 
@@ -122,8 +140,26 @@ See **[summary.md](summary.md)**
 **Competition**: RapidFire AI Winter Competition on LLM Experimentation  
 **Track**: RAG (Retrieval-First RAG Experimentation)  
 **Submission Date**: January 2026  
-**Award**: 🏅 Best Dataset Utilization  
+**Award**: 🏅 Best Dataset Utilization, one of 7 category winners. The release describes it as recognizing "a course-catalog RAG system and used RapidFire AI to run reproducible experiments grounded in a well-scoped real-world dataset, with clear documentation and practical retrieval-focused comparisons."  
 **Press**: [RapidFire AI Celebrates Winners Showcasing How to Build Better LLM Applications, Faster](https://www.einpresswire.com/article/889751837/rapidfire-ai-celebrates-winners-showcasing-how-to-build-better-llm-applications-faster) (EIN Presswire, Feb 5, 2026)  
+
+---
+
+## 📝 What changed after the competition
+
+In October 2026 I audited my own submission. The original notebook, results CSV and `summary.md` are unchanged (git tag `pre-correction`); corrections live in new files.
+
+| Issue found in the original | Effect | Fixed in |
+|---|---|---|
+| NDCG@5 scored hits as 1 but the ideal ranking as 3 (inherited from the framework's tutorial notebook) | NDCG@5 was capped at 1/3 | v2 |
+| Retrieved IDs were converted to a Python `set` before NDCG@5 and MRR | Rank order was lost for rank-based metrics | v2 |
+| `rapidfireai==0.12.9` never builds the reranker in the query actors (`rag_pipeline.py:170`, `query_actor.py:201-214`; read from source, consistent with 6-8 unique IDs per query even at `top_n=2`) | The reranker did not run; `top_n` had no effect, so the "2×2" was effectively one factor | v3 |
+| `top_n` is not part of RapidFire's context hash (`rag_pipeline.py:461-496`) | Configs differing only in `top_n` share one built context | v3 (reranker moved into `preprocess_fn`) |
+| README and `summary.md` quoted numbers from an earlier run (Precision 0.373, Recall 0.520), not the committed CSV (0.352, 0.493) | Reported gains were larger than the CSV supports | this README |
+| "1,304 chunks" are source sections, not chunks | Terminology | this README |
+| Claims such as "20% faster", "9% more accurate" and "real-time confidence intervals showed superiority" | Not measured by any code in the repo | removed |
+
+Corrected NDCG@5 and MRR for the original configuration (no reranker, v2 vs original CSV): NDCG@5 0.345 vs 0.119 (256) and 0.350 vs 0.118 (128); MRR 0.658 vs 0.616 and 0.600 vs 0.591. Precision, Recall and F1 were unchanged by the metric fixes.
 
 ---
 

@@ -1,3 +1,10 @@
+> **⚠️ Superseded — original write-up, kept as submitted below.** After the competition I audited
+> this experiment. Its metrics had bugs (NDCG@5 was capped at 1/3 and rank order was lost for
+> NDCG/MRR), its numbers come from an earlier run than `results/ucsb_catalog_results.csv`, and the
+> reranking setting had no effect on results, so its conclusions (for example that larger chunks
+> significantly outperform smaller ones) do not hold. See [README.md](README.md) for the corrected
+> results, confidence intervals and what changed.
+
 # UCSB Course Catalog RAG System - Experiment Summary
 
 ## 1. Dataset & Use Case Description
